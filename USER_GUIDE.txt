@@ -1,0 +1,357 @@
+--- USER GUIDE ---
+
+This code simulates an incompressible flow in a domain with arbitrary obstacles.
+
+
+===========================
+|			  |
+| Describing the Problem  |
+|			  |
+===========================
+
+
+
+The geometry domain is read from a file.
+
+************************************************************************************
+
+Example file entry 01:
+
+w s s s s s s s s s s s x l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+y i i i i i i i i i i i z l
+
+f
+
+
+Example file entry 02:
+
+w s s s s s s s s s s s x l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . w s s x . . . d l
+e . . . . e o o d . . . d l
+e . . . . e o o d . . . d l
+e . . . . e o o d . . . d l
+e . . . . y i i z . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+e . . . . . . . . . . . d l
+y i i i i i i i i i i i z l
+
+f
+
+*********************************************************************************
+
+These examples describe arbitrary domains containing 13x13 points. 
+
+One can write bigger domains or add arbitrary obstacles inside, respecting the following rules:
+
+'o' denotes an obstacle cell
+'.' denotes a fluid cell
+'s' denotes an upper obstacle cell (i.e an obstacle cell with a fluid cell to the south)
+'e' denotes a left obstacle cell   (i.e an obstacle cell with a fluid cell to the right)
+'w' denotes an upper left obstacle cell, which can be treated simultaneously as a left cell and upper cell
+... and so on
+'l' skips a line
+'f' is the end of file
+
+Char values read from file are converted to int 
+'e' is 1
+'s' is 2
+'w' is 1+2=3
+...and so on
+
+The int matrix is flipped 90 degrees.
+Thus, the upper boundary will be stored in the last column (instead of in the first row, as in the char matrix)
+The right boundary will be stored in the last row (instead of in the last column, as in the char matrix)
+This is so that we can access an upper point by j+1, a lower point by j-1, a point to the right by i+1 and to the left by i-1
+
+In this arrangement, the velocity matrices can be directly plotted as a vector field with the same arrangement as the char matrix read from the file.
+
+
+>>>This code is set up with the boundary conditions to solve the classical Lid-Driven Cavity problem<<<
+
+
+If one wishes to solve other problems, the geometry should be specified accordingly.
+In this case, an additional implementation is needed to treat different boundary conditions (no-slip, free slip, inflow, outflow, etc) along the domain.
+
+
+
+===========================
+|			  |
+| General expressions     |
+|			  |
+===========================
+
+
+
+
+Discretizing the time derivatives in the adimensionalized Navier-Stokes equation for incompressible flows with constant density results in these expressions for the momentum equations:
+
+	u[i][j] = F[i][j] - dt/dx*(P[i+1][j]-P[i][j]);
+	v[i][j] = G[i][j] - dt/idy*(P[i][j+1]-P[i][j]);
+
+Where 
+	F = u[i][j] + dt*(1/Re)*(du2_dx2 + du2_dy2) - du2dx  - duv_dy
+	G = v[i][j] + dt*(1/Re)*(du2_dx2 + du2_dy2) - dv2dy  - duv_dx
+	
+And Re is the Reynolds Number (i.e the ratio of inertial forces and viscous forces)
+
+
+
+The right hand side of the pressure equation (dP) has the following expression:
+
+	dP[i][j]=(F[i+1][j] - F[i][j])/dx + (G[i][j+1] - G[i][j])/dy
+
+
+The complete pressure equation is given by:
+
+	d2P_dx2 + d2P_dy2 = dP
+
+
+d2P_dx2 and d2P_dy2 are discretized using a Centered Differences method and a Gauss-Seidel iterative method is implemented to solve the pressure equation for P using dP for every i,j
+
+
+
+===========================
+|			  |
+| Treatment of Boundaries |
+|			  |
+===========================
+
+
+
+
+We need to treat the boundary conditions in order to calculate F, G and P.
+
+
+The points are placed in a staggered grid.
+There's an example inside the source code including the stencils for F and G.
+
+
+************************************************************************************
+
+Example of the stencil for F:
+
+
+       |       |       |       |
+       |       |       u       |       j+1
+       |       |       |       |
+-------|-------|---v*--|---v---|-------
+       |       |       |       |
+       |       u       u*      u       j
+       |       |       |       |
+-------|-------|---v---|---v---|-------
+       |       |       |       |
+       |       |       u       |       j-1
+       |       |       |       |
+-------|-------|-------|-------|-------
+       |       |       |       |
+       |       |       |       |
+       |       |       |       |
+              i-1      i      i+1
+
+u*=u[i][j]
+v*=v[i][j]
+
+************************************************************************************
+
+
+If, for instance, we're in an upper boundary, as indicated by the flag matrix at point i,j, we do not have any points at j+1.
+
+These will be interpolated. It's also important to notice there's no U in the horizontal boundaries and there's no V in the vertical boundaries.
+
+
+If the velocity U at the upper boundary has to be zero, and we don't have the point u[i][j+1], we'll replace it by -u[i][j] (marked u* in the stencil for F).
+Thus the velocity U exactly at the upper boundary in the horizontal line between u[i][j] and u[i][j+1] must be zero.
+
+
+
+If, for instance, we're at a right boundary, as indicated by the flag matrix at point i,j, we do not have any points at i+1.
+But now we have U velocities lying exactly in the boundary.
+Thus, u[i+1][j] will be replaced by -u[i-1][j], since the value at the boundary (u[i][j]) has to be zero.
+
+ 
+
+The discretization for each term of the equations calls a function in which these points are the parameters. See the next example:
+
+
+
+************************************************************************************
+										   
+Example of du2_dx2:								   
+										   										   
+
+double u2_x2(double Ap, double Bp, double Cp){                                    
+										   
+	return (Ap - 2.0*Bp + Cp)/dx*dx;                                           
+}										   
+										   
+										   
+										   
+Example of du2_dy2:								   
+										   
+										   
+double u2_y2(double Dp, double Bp, double Ep){                                    
+										   
+        return (Dp-2.0*Bp+Ep)*/dy*dy;                                             
+}										   
+									   
+										   
+************************************************************************************
+
+	B is defined as u[i][j]
+
+	A is defined as u[i+1][j]
+	C is defined as u[i-1][j]
+
+	D is defined as u[i][j+1]
+	E is defined as u[i][j-1]
+
+Thus, if we're in a fluid (interior) cell, as indicated by the flag matrix at the point i,j, we won't have a problem with boundary points.
+
+The discretized terms of the Laplace equation calculated in F can be calculated by calling u2_x2(A, B, C) and u2_y2(D, B, E).
+
+
+However, if we're at an upper boundary, we don't have j+1 points.
+When calculating F (refer to the Stencil for F again, slightly different when calculating G), we can't use u[i][j+1] (D).
+
+So when the function u2_y2 is called, instead of u2_y2(D, B, E), we replace the point outside the domain (D) by the proper interpolation.
+
+
+If we want velocity U_s in the upper boundary, then u2_y2 is called by
+
+	u2_y2(2*U_s-B, B, E)
+
+This replacement of D by 2*U_s-B guarantees a velocity of U_s between D and B, as expected.
+
+
+If we're at a right boundary, we don't have i+1 points. Let's consider velocity U=0 in the right boundary.
+Then, instead of calling u2_x2(A, B, C), as in this case we don't have the point u[i+1][j] (A), we call
+	u2_x2(-C, B, C)
+
+
+The case is analogous for other boundary conditions and the valid combination between two of them. 
+
+The treatment of boundaries in F is also analogous for G, but G has a different stencil, so the points used will change. 
+
+
+
+
+The discretization of the other terms (the convective terms) of the Navier-Stokes equation uses a mixed Central Differences and Donor-Cell scheme controlled by a factor (gama) between 0 and 1.
+
+
+************************************************************************************
+										   
+Example of duv_dx:
+
+
+double uv_x(double Bp, double Dp, double bp, double ap, double Cp, double Qp, double cp){
+
+return (         (Bp + Dp)*(bp + ap)+
+	gama*fabs(Bp + Dp)*(bp - ap)-
+
+                 (Cp + Qp)*(cp + bp)-
+	gama*fabs(Cp + Qp)*(cp - bp)) 
+        *0.25/dx;
+}
+
+
+************************************************************************************
+
+===========================
+|			  |
+| Poisson Equation        |
+|			  |
+===========================
+
+
+The Poisson Equation for the pressure is solved by the Gauss-Seidel iterative method (one could also implement a SOR method here)
+
+The iterative method to solve for P using dP is set-up as following:
+
+	b=(-dt*idx2)*(A + B);
+	c=(-dt*idy2)*(C + D);
+	P[i][j]= -ia*(b + c + dP[i][j]);
+
+Where 
+	A is defined as P[i][j+1]
+	B is defined as P_ant[i][j-1]
+	C is defined as P[i+1][j]
+	D is defined as P_ant[i-1][j]
+
+and P_ant corresponds to an entry of the pressure matrix from the previous iteration.
+
+The convergence criterion adopted was the maximum difference between an element of P and an element from P_ant being smaller than eps (usually 10^-3)
+
+
+Again, there are problems in the boundaries for the pressure as well. 
+
+The treatment of these boundary conditions for the pressure, according to Chorin's Projection Method (Griebel, 1997) are as follows:
+
+	P_Dir is defined as P_ant[i][j]-dx/dt*(u[i+1][j]- F[i+1][j])
+	P_Esq is defined as P_ant[i][j]+dx/dt*(u[i][j]- F[i][j])
+	P_Inf is defined as P_ant[i][j]+dy/dt*(v[i][j]- G[i][j])
+	P_Sup is defined as P_ant[i][j]-dy/dt*(v[i][j+1]- G[i][j+1])
+
+
+Thus, if flag[i][j] indicates that we're at a right boundary, we replace C (P[i+1][j]) with P_Dir
+If upper boundary, replace A (P[i][j+1]) with P_Sup
+If lower boundary, replace B with P_Inf
+If left boundary, replace D with P_Esq
+
+This automatically treats valid combinations of two boundaries.
+If flag[i][j] indicates a lower left boundary, B is already replaced with P_Inf and D is already replaced with P_Esq, and the pressure at P[i][j] can be calculated.
+
+
+
+===========================
+|			  |
+| ALGORITHM               |
+|			  |
+===========================
+
+
+
+t <- 0
+
+Reads geometry from file
+
+Sets up flag matrix according to geometry
+
+Initialize U, V, P
+
+While t<t_f
+
+	Time interval dt is chosen according to the stability condition (*)
+
+	Compute F and G in the interior and in the boundaries
+	
+	Compute dP using F and G
+	
+	While convergence criterion not met
+
+		Gauss-Seidel iteration to solve the pressure equation for P
+		
+	Compute U, V in the next time-level
+
+	t <- t+dt
+End
+
+Writes file with resulting U, V matrices (can be modified to output the P matrix as well)
+
+
+
+(*) A fixed time step can be used instead as long as the stability condition is always satisfied.
